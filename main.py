@@ -1,10 +1,45 @@
-from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, FloatType
-from pyspark.sql.functions import corr, col
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, broadcast
 
-#Schema of items 
+# Function to load and clean data
+def load_and_clean_data(file_path, schema):
+    df = spark.read.format("csv").option("delimiter", "\t").schema(schema).load(file_path)
+    return df.na.drop()
+
+# Top k categories by the number of videos uploaded
+def top_k_categories(df, k_categories):
+    print(f"Top {k_categories} categories with the most videos uploaded:")
+    df.groupBy("category").count().orderBy("count", ascending=False).show(k_categories)
+
+# Top k rated videos
+def top_k_rated_videos(df, k_rated):
+    print(f"Top {k_rated} rated videos:")
+    df.orderBy("rating", ascending=False).show(k_rated)
+
+# Top k most popular videos by views
+def top_k_popular_videos(df, k_views):
+    print(f"Top {k_views} most popular videos:")
+    df.orderBy("views", ascending=False).show(k_views)
+
+# Videos in a specific category and duration range
+def videos_in_category_duration(df, category, min_length, max_length):
+    print(f"All videos in category '{category}' with duration within range [{min_length}, {max_length}]:")
+    df.filter((df.category == category) & (df.length.between(min_length, max_length))).show()
+
+def find_subgraph_patterns(df, user_id, category, min_interaction):
+    # Filter the DataFrame to get videos uploaded by the user in the specific category and with minimum interactions
+    filtered_df = df.filter((col("uploader") == user_id) & (col("category") == category) & (col("age") >= min_interaction))
+
+    return filtered_df
+
+
+# Initialize Spark Session
+spark = SparkSession.builder.appName("YouTubeDataAnalyzer").getOrCreate()
+
+# Define the schema of the dataset
 schema = StructType([
-    StructField("video_id", StringType(), True),
+    StructField("videoId", StringType(), True),
     StructField("uploader", StringType(), True),
     StructField("age", IntegerType(), True),
     StructField("category", StringType(), True),
@@ -14,47 +49,27 @@ schema = StructType([
     StructField("ratings", IntegerType(), True),
     StructField("comments", IntegerType(), True),
 ])
+# Load data
+df_cleaned = load_and_clean_data("youtubeData/2.txt", schema)
 
-# Initialize Spark Session
-spark = SparkSession.builder.appName("YouTubeDataAnalyzer").getOrCreate()
-# Load data from a text file
-df = spark.read.format("csv").option("delimiter", "\t").schema(schema).load("youtubeData/3.txt")
-dfCleaned = df.na.drop()
-dfCleaned.show()
+# Usage of functions
+k_categories = int(input("Enter the number of top categories to display: "))
+k_rated = int(input("Enter the number of top rated videos to display: "))
+k_views = int(input("Enter the number of top popular videos to display: "))
+top_k_categories(df_cleaned, k_categories)
+top_k_rated_videos(df_cleaned, k_rated)
+top_k_popular_videos(df_cleaned, k_views)
 
+category = input("Enter a video category (i.e Comedy, Entertainment, News & Politics, Film and Animation, Music, Peoples And Blogs): ")
+min_length = int(input("Enter the minimum video length you'd like to see: "))
+max_length = int(input("Enter the maximum video length you'd like to see: "))
+videos_in_category_duration(df_cleaned, category, min_length, max_length)
 
-#Part 1
-# Top k categories by the number of videos uploaded
-print("Top 5 categories in which the most number of videos are uploaded.") 
-dfCleaned.groupBy("category").count().orderBy("count", ascending=False).show(5)
-# Top k rated videos
-print("Top 5 rated videos.")
-dfCleaned.orderBy("rating", ascending=False).show(5)
-# Top k most popular videos by views
-print("Top 5 most popular videos.") 
-dfCleaned.orderBy("views", ascending=False).show(5)
+# Example usage of the function
+user_id = input("Enter in a user id (e.g. thecrashguy): ")  # Example user ID
+category = input("Enter in a catagory (e.g. Music): ") # Example category
+min_interaction = int(input("Enter minimum interaction threshold (e.g., age): "))
 
-
-#Part 2
-# Find videos in a specific category with duration within [t1, t2]
-print("All videos in categorie Comedy with duration within a range [10, 100]")
-dfCleaned.filter((dfCleaned.category == 'Comedy') & (dfCleaned.length.between(10, 100))).show()
-print("All videos with size in a range [t1, t2]")
-dfCleaned.filter((dfCleaned.length.between(10,20))).show()
-
-#Part 3
-# 1. Correlation between views and ratings
-print(f"Correlation between views and ratings:")
-correlation = dfCleaned.select(corr("views", "rating").alias("correlation_coefficient")).collect()[0]["correlation_coefficient"]
-
-
-# 2. Viewer Engagement Analysis
-dfEngagement = dfCleaned.withColumn("comments_per_view", col("comments") / col("views")).withColumn("ratings_per_view", col("ratings") / col("views"))
-# Display top videos by engagement
-print("Top videos by engagement.")
-dfEngagement.select("video_id", "comments_per_view", "ratings_per_view").orderBy("comments_per_view", ascending=False).show()
-
-# 3. Trend Analysis Over Time
-# Analyzing the average views and ratings by age of video
-print("Average views and ratings by age of video.")
-dfCleaned.groupBy("age").avg("views", "rating").orderBy("age").show()
+# Find patterns:
+subgraph_patterns_df = find_subgraph_patterns(df_cleaned, user_id, category, min_interaction)
+subgraph_patterns_df.show()               
